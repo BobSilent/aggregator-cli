@@ -1,20 +1,27 @@
 ﻿using System;
+using System.Collections.Specialized;
+using System.Globalization;
+
+using Microsoft.WindowsAzure.Storage.Core;
 
 namespace aggregator
 {
     public static class InvokeOptions
     {
-        public static string AppendToUrl(string ruleUrl, bool dryRun, SaveMode saveMode)
+        public static Uri AddToUrl(this Uri ruleUrl, bool dryRun = false, SaveMode saveMode = SaveMode.Default)
         {
-            return ruleUrl + FormattableString.Invariant($"?dryRun={dryRun}&saveMode={saveMode}");
+            var queryBuilder = new UriQueryBuilder();
+            queryBuilder.Add("dryRun", dryRun.ToString(CultureInfo.InvariantCulture));
+            queryBuilder.Add("saveMode", saveMode.ToString());
+
+            return queryBuilder.AddToUri(ruleUrl);
         }
 
-        public static AggregatorConfiguration ExtendFromUrl(AggregatorConfiguration configuration, Uri requestUri)
+        public static AggregatorConfiguration UpdateFromUrl(this AggregatorConfiguration configuration, Uri requestUri)
         {
             var parameters = System.Web.HttpUtility.ParseQueryString(requestUri.Query);
 
-            bool dryRun = bool.TryParse(parameters["dryRun"], out dryRun) && dryRun;
-            configuration.DryRun = dryRun;
+            configuration.DryRun = IsDryRunEnabled(parameters);
 
             if (Enum.TryParse(parameters["saveMode"], out SaveMode saveMode))
             {
@@ -22,6 +29,12 @@ namespace aggregator
             }
 
             return configuration;
+        }
+
+        private static bool IsDryRunEnabled(NameValueCollection parameters)
+        {
+            bool dryRun = bool.TryParse(parameters["dryRun"], out dryRun) && dryRun;
+            return dryRun;
         }
     }
 }

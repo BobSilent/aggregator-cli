@@ -60,8 +60,8 @@ namespace aggregator
             }
 
             var configContext = GetConfigurationContext();
-            var configuration = AggregatorConfiguration.Read(configContext);
-            configuration = InvokeOptions.ExtendFromUrl(configuration, req.RequestUri);
+            var configuration = AggregatorConfiguration.Read(configContext)
+                                                       .UpdateFromUrl(req.RequestUri);
 
             var logger = new ForwarderLogger(_log);
             var wrapper = new RuleWrapper(configuration, logger, ruleName, _context.FunctionDirectory);

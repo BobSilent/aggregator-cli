@@ -55,12 +55,13 @@ namespace aggregator.cli
             }
         }
 
-        internal static string GetInvocationUrl(InstanceName instance, string rule)
+        internal static Uri GetInvocationUrl(InstanceName instance, string rule)
         {
-            return $"{instance.FunctionAppUrl}/api/{rule}";
+            var url = $"{instance.FunctionAppUrl}/api/{rule}";
+            return new Uri(url);
         }
 
-        internal async Task<(string url, string key)> GetInvocationUrlAndKey(InstanceName instance, string rule, CancellationToken cancellationToken)
+        internal async Task<(Uri url, string key)> GetInvocationUrlAndKey(InstanceName instance, string rule, CancellationToken cancellationToken)
         {
             var instances = new AggregatorInstances(_azure, _logger);
             var kudu = new KuduApi(instance, _azure, _logger);
@@ -80,7 +81,7 @@ namespace aggregator.cli
                             var js = new JsonSerializer();
                             var secret = js.Deserialize<KuduSecret>(jtr);
 
-                            (string url, string key) invocation = (GetInvocationUrl(instance, rule), secret.Key);
+                            (Uri url, string key) invocation = (GetInvocationUrl(instance, rule), secret.Key);
                             return invocation;
                         }
                     }
@@ -350,7 +351,7 @@ namespace aggregator.cli
             var (ruleUrl, ruleKey) = await GetInvocationUrlAndKey(instance, ruleName, cancellationToken);
             _logger.WriteInfo($"{ruleName} Function Key retrieved.");
 
-            ruleUrl = InvokeOptions.AppendToUrl(ruleUrl, dryRun, saveMode);
+            ruleUrl = ruleUrl.AddToUrl(dryRun, saveMode);
 
             string baseUrl = $"https://dev.azure.com/{account}";
             Guid teamProjectId = Guid.Empty;

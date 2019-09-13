@@ -53,9 +53,9 @@ namespace aggregator.cli
                     continue;
                 }
                 // HACK need to factor the URL<->rule_name
-                string ruleUrl = subscription.ConsumerInputs.GetValue("url","/");
-                string ruleName = ruleUrl.Substring(ruleUrl.LastIndexOf('/'));
-                string ruleFullName = InstanceName.FromFunctionAppUrl(ruleUrl).PlainName + ruleName;
+                Uri ruleUrl = new Uri(subscription.ConsumerInputs.GetValue("url", "https://google.com"));
+                string ruleName = ruleUrl.Segments.LastOrDefault() ?? string.Empty;
+                string ruleFullName = $"{InstanceName.FromFunctionAppUrl(ruleUrl).PlainName}/{ruleName}";
                 result.Add(
                     new MappingOutputData(instance, ruleFullName, foundProject.Name, subscription.EventType, subscription.Status.ToString())
                     );
@@ -80,7 +80,7 @@ namespace aggregator.cli
 
             var rules = new AggregatorRules(azure, logger);
             logger.WriteVerbose($"Retrieving {ruleName} Function Key...");
-            (string ruleUrl, string ruleKey) = await rules.GetInvocationUrlAndKey(instance, ruleName, cancellationToken);
+            (Uri ruleUrl, string ruleKey) = await rules.GetInvocationUrlAndKey(instance, ruleName, cancellationToken);
             logger.WriteInfo($"{ruleName} Function Key retrieved.");
 
             var serviceHooksClient = devops.GetClient<ServiceHooksPublisherHttpClient>();
@@ -108,7 +108,7 @@ namespace aggregator.cli
                             new InputFilterCondition
                             {
                                 InputId = "url",
-                                InputValue  = ruleUrl,
+                                InputValue  = ruleUrl.ToString(),
                                 Operator = InputFilterOperator.Equals,
                                 CaseSensitive = false
                             }
@@ -132,7 +132,7 @@ namespace aggregator.cli
                 ConsumerActionId = "httpRequest",
                 ConsumerInputs = new Dictionary<string, string>
                 {
-                    { "url", ruleUrl },
+                    { "url", ruleUrl.ToString() },
                     { "httpHeaders", $"x-functions-key:{ruleKey}" },
                     // careful with casing!
                     { "resourceDetailsToSend", "all" },
@@ -218,7 +218,7 @@ namespace aggregator.cli
             {
                 ruleSubs = ruleSubs
                 .Where(s => s.ConsumerInputs.GetValue("url", "").StartsWith(
-                    AggregatorRules.GetInvocationUrl(instance, rule)));
+                    AggregatorRules.GetInvocationUrl(instance, rule).ToString()));
             }
 
             foreach (var ruleSub in ruleSubs)
