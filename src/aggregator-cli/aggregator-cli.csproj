@@ -21,12 +21,16 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <None Remove="OAuth\function.json" />
+    <None Remove="OAuth\run.csx" />
     <None Remove="Rules\function.json" />
     <None Remove="Rules\run.csx" />
   </ItemGroup>
 
   <ItemGroup>
     <EmbeddedResource Include="Instances\instance-template.json" />
+    <EmbeddedResource Include="OAuth\function.json" />
+    <EmbeddedResource Include="OAuth\run.csx" />
     <EmbeddedResource Include="Rules\function.json" />
     <EmbeddedResource Include="Rules\run.csx" />
   </ItemGroup>
