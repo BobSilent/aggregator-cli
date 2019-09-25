@@ -112,31 +112,32 @@ namespace aggregator
         public int ExpiresInSec { get; set; }
         [JsonProperty("refresh_token")]
         public string RefreshToken { get; set; }
-        [JsonConverter(typeof(SpaceDelimitedListConverter))]
+        //[JsonConverter(typeof(SpaceDelimitedListConverter))]
         [JsonProperty("scope")]
-        public IEnumerable<string> Scopes {get; set; }
+        //public IEnumerable<string> Scopes {get; set; }
+        public string Scopes { get; set; }
     }
 
 
-    public class SpaceDelimitedListConverter : JsonConverter
-    {
-        public override bool CanConvert(Type objectType)
-        {
-            return objectType == typeof(List<string>);
-        }
+    //public class SpaceDelimitedListConverter : JsonConverter
+    //{
+    //    public override bool CanConvert(Type objectType)
+    //    {
+    //        return objectType == typeof(List<string>);
+    //    }
 
-        public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer)
-        {
-            var listValue = value as IEnumerable<string> ?? Enumerable.Empty<string>();
-            var converted = string.Join(" ", listValue);
-            writer.WriteValue(converted);
-        }
+    //    public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer)
+    //    {
+    //        var listValue = value as IEnumerable<string> ?? Enumerable.Empty<string>();
+    //        var converted = string.Join(" ", listValue);
+    //        writer.WriteValue(converted);
+    //    }
 
-        public override object ReadJson(JsonReader reader, Type objectType, object existingValue, JsonSerializer serializer)
-        {
-            var stringValue = reader.Value as string;
-            var converted = stringValue?.Split(' ') ?? Enumerable.Empty<string>();
-            return new List<string>(converted);
-        }
-    }
+    //    public override object ReadJson(JsonReader reader, Type objectType, object existingValue, JsonSerializer serializer)
+    //    {
+    //        var stringValue = reader.Value as string;
+    //        var converted = stringValue?.Split(' ') ?? Enumerable.Empty<string>();
+    //        return new List<string>(converted);
+    //    }
+    //}
 }
