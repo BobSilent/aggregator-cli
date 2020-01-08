@@ -1,7 +1,7 @@
 ﻿using Microsoft.TeamFoundation.WorkItemTracking.WebApi.Models;
 using Microsoft.VisualStudio.Services.WebApi;
 using Microsoft.VisualStudio.Services.WebApi.Patch;
-using Microsoft.VisualStudio.Services.WebApi.Patch.Json;
+
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -12,22 +12,18 @@ namespace aggregator.Engine
     {
         private readonly EngineContext _context;
         private readonly WorkItem _item;
+        private RecycleStatus _recycleStatus;
 
         internal WorkItemWrapper(EngineContext context, WorkItem item)
         {
             _context = context;
             _item = item;
+            _recycleStatus = RecycleStatus.NoChange;
             Relations = new WorkItemRelationWrapperCollection(this, _item.Relations);
 
             if (item.Id.HasValue)
             {
                 Id = new PermanentWorkItemId(item.Id.Value);
-                Changes.Add(new JsonPatchOperation()
-                {
-                    Operation = Operation.Test,
-                    Path = "/rev",
-                    Value = item.Rev
-                });
                 //for simplify testing: item.Url can be null
                 IsDeleted = item.Url?.EndsWith($"/recyclebin/{item.Id.Value}", StringComparison.OrdinalIgnoreCase) ?? false;
 
@@ -37,12 +33,6 @@ namespace aggregator.Engine
             else
             {
                 Id = new TemporaryWorkItemId(_context.Tracker);
-                Changes.Add(new JsonPatchOperation()
-                {
-                    Operation = Operation.Add,
-                    Path = "/id",
-                    Value = Id.Value
-                });
 
                 _context.Tracker.TrackNew(this);
             }
@@ -55,15 +45,10 @@ namespace aggregator.Engine
         {
             _context = context;
             _item = item;
+            _recycleStatus = RecycleStatus.NoChange;
             Relations = new WorkItemRelationWrapperCollection(this, _item.Relations);
 
             Id = new PermanentWorkItemId(item.Id.Value);
-            Changes.Add(new JsonPatchOperation()
-            {
-                Operation = Operation.Test,
-                Path = "/rev",
-                Value = item.Rev
-            });
             IsDeleted = item.Url?.EndsWith($"/recyclebin/{item.Id}", StringComparison.OrdinalIgnoreCase) ?? false;
 
             IsReadOnly = isReadOnly;
@@ -340,11 +325,29 @@ namespace aggregator.Engine
 
         public bool IsNew => Id is TemporaryWorkItemId;
 
-        public bool IsDirty { get; internal set; }
+        public bool IsDirty => FieldChanges.Any() || RecycleStatus != RecycleStatus.NoChange || Relations.IsDirty;
 
-        internal RecycleStatus RecycleStatus { get; set; } = RecycleStatus.NoChange;
+        internal RecycleStatus RecycleStatus
+        {
+            get => _recycleStatus;
+            set
+            {
+                if ((value == RecycleStatus.ToDelete && IsDeleted) ||
+                    (value == RecycleStatus.ToRestore && !IsDeleted))
+                {
+                    // setting original value means in sum no change
+                    _recycleStatus = RecycleStatus.NoChange;
+                }
+                else
+                {
+                    _recycleStatus = value;
+                }
+            }
+        }
 
-        internal JsonPatchDocument Changes { get; } = new JsonPatchDocument();
+        internal IDictionary<string, (object value, Operation operation)> FieldChanges { get; } = new Dictionary<string, (object, Operation)>();
+
+        internal IDictionary<string, object> RelationChanges { get; } = new Dictionary<string, object>();
 
         public object this[string field]
         {
@@ -359,103 +362,82 @@ namespace aggregator.Engine
                 throw new InvalidOperationException("Work item is read-only.");
             }
 
+            var operation = Operation.Add;
+
             if (_item.Fields.ContainsKey(field))
             {
                 if (_item.Fields[field].Equals(value))
                 {
                     // if new value does not differ from existing value, just ignore change
+                    FieldChanges.Remove(field);
                     return;
                 }
 
-                _item.Fields[field] = value;
-                Changes.Add(new JsonPatchOperation()
-                {
-                    Operation = Operation.Replace,
-                    Path = "/fields/" + field,
-                    Value = TranslateValue(value)
-                });
+                operation = Operation.Replace;
+                FieldChanges[field] = (value, operation);
+            }
+            else if (value == default)
+            {
+                //was added, should now be deleted, so in sum no change
+                FieldChanges.Remove(field);
             }
             else
             {
-                _item.Fields.Add(field, value);
-                Changes.Add(new JsonPatchOperation()
-                {
-                    Operation = Operation.Add,
-                    Path = "/fields/" + field,
-                    Value = TranslateValue(value)
-                });
-            }
-
-            IsDirty = true;
-        }
-
-        private static object TranslateValue(object value)
-        {
-            switch (value)
-            {
-                case IdentityRef id:
-                    {
-                        return id.DisplayName;
-                    }
-                default:
-                    {
-                        return value;
-                    }
+                FieldChanges[field] = (value, operation);
             }
         }
 
-        private T GetFieldValue<T>(string field)
+        public T GetFieldValue<T>(string field, T defaultValue = default)
         {
-            return _item.Fields.TryGetValue(field, out var value)
-                ? (T)value
-                : default;
-        }
+            var isChangedValue = FieldChanges.TryGetValue(field, out var updatedItem);
+            var hasFieldValue = _item.Fields.TryGetValue(field, out var originalValue);
 
-        public T GetFieldValue<T>(string field, T defaultValue)
-        {
-            return _item.Fields.TryGetValue(field, out var value)
+            // prefer already changed value over original Value
+            var value = isChangedValue ? updatedItem.value : originalValue;
+
+            return hasFieldValue
                 ? (T)Convert.ChangeType(value, typeof(T))
                 : defaultValue;
         }
 
-        internal void ReplaceIdAndResetChanges(int oldId, int newId)
+        /// <summary>
+        /// when new work item was created, set the correct work item id after creation
+        /// and if already field values where added persist them
+        /// </summary>
+        /// <param name="newId">the Id from created WorkItem</param>
+        /// <param name="clearFieldChanges"></param>
+        internal void SetPermanentId(int newId, bool clearFieldChanges = true)
         {
-            if (oldId >= 0) throw new ArgumentOutOfRangeException(nameof(oldId));
+            if (Id is PermanentWorkItemId)
+            {
+                throw new ArgumentException("Work Item already has a valid Id");
+            }
 
             Id = new PermanentWorkItemId(newId);
 
-            var candidates = Changes.Where(op => op.Path == "/relations/-");
-            foreach (var op in candidates)
+            if (!clearFieldChanges)
             {
-                var patch = op.Value as RelationPatch;
-                string url = patch.url;
-                int pos = url.LastIndexOf('/') + 1;
-                int relId = int.Parse(url.Substring(pos));
-                if (relId == oldId)
-                {
-                    patch.url = url.Substring(0, pos) + newId.ToString();
-                    break;
-                }
+                return;
             }
 
-            Changes.RemoveAll(op => op.Path.StartsWith("/fields/", StringComparison.OrdinalIgnoreCase) || op.Path == "/id");
-        }
-
-        internal void RemapIdReferences(IDictionary<int, int> realIds)
-        {
-            var candidates = Changes.Where(op => op.Path == "/relations/-");
-            foreach (var op in candidates)
+            //persist field changes
+            foreach (var fieldChange in FieldChanges)
             {
-                var patch = op.Value as RelationPatch;
-                string url = patch.url;
-                int pos = url.LastIndexOf('/') + 1;
-                int relId = int.Parse(url.Substring(pos));
-                if (realIds.TryGetValue(relId, out var newId))
-                {
-                    string newUrl = url.Substring(0, pos) + newId.ToString();
-                    patch.url = newUrl;
+                var fieldKey = fieldChange.Key;
+                (object value, Operation operation) = fieldChange.Value;
+
+                switch (operation) {
+                    case Operation.Add:
+                    case Operation.Replace:
+                        _item.Fields[fieldKey] = value;
+                        break;
+
+                    case Operation.Remove:
+                        _item.Fields.Remove(fieldKey);
+                        break;
                 }
             }
+            FieldChanges.Clear();
         }
     }
 

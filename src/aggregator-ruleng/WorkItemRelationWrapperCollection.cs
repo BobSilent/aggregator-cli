@@ -1,7 +1,5 @@
-﻿using Microsoft.TeamFoundation.WorkItemTracking.WebApi;
-using Microsoft.TeamFoundation.WorkItemTracking.WebApi.Models;
+﻿using Microsoft.TeamFoundation.WorkItemTracking.WebApi.Models;
 using Microsoft.VisualStudio.Services.WebApi.Patch;
-using Microsoft.VisualStudio.Services.WebApi.Patch.Json;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -11,68 +9,65 @@ namespace aggregator.Engine
 {
     public class WorkItemRelationWrapperCollection : ICollection<WorkItemRelationWrapper>
     {
-        private WorkItemWrapper _pivotWorkItem;
         private IList<WorkItemRelationWrapper> _original;
-        private IList<WorkItemRelationWrapper> _current;
+        private HashSet<WorkItemRelationWrapper> _current;
+        private IDictionary<WorkItemRelationWrapper, Operation> _changes;
 
         internal WorkItemRelationWrapperCollection(WorkItemWrapper workItem, IList<WorkItemRelation> relations)
         {
-            _pivotWorkItem = workItem;
+            IsReadOnly = workItem.IsReadOnly;
             _original = relations == null
                 ? new List<WorkItemRelationWrapper>()
                 : relations.Select(relation => new WorkItemRelationWrapper(relation))
                            .ToList();
 
             // do we need deep cloning?
-            _current = new List<WorkItemRelationWrapper>(_original);
+            _current = new HashSet<WorkItemRelationWrapper>(_original);
+            _changes = new Dictionary<WorkItemRelationWrapper, Operation>();
         }
 
         private void AddRelation(WorkItemRelationWrapper item)
         {
-            if (_pivotWorkItem.IsReadOnly)
+            if (IsReadOnly)
             {
                 throw new InvalidOperationException("Work item is read-only.");
             }
 
-            _current.Add(item);
-
-            _pivotWorkItem.Changes.Add(new JsonPatchOperation()
+            if (_original.Contains(item))
             {
-                Operation = Operation.Add,
-                Path = "/relations/-",
-                Value = new RelationPatch
-                {
-                    rel = item.Rel,
-                    url = item.Url,
-                    attributes = item.Attributes != null && item.Attributes.TryGetValue("comment", out object value)
-                        ? new { comment = value }
-                        : null
-                }
-            });
+                _changes.Remove(item);
+                return;
+            }
 
-            _pivotWorkItem.IsDirty = true;
+            _changes[item] = Operation.Add;
+            _current.Add(item);
         }
 
         private bool RemoveRelation(WorkItemRelationWrapper item)
         {
-            if (_pivotWorkItem.IsReadOnly)
+            if (IsReadOnly)
             {
                 throw new InvalidOperationException("Work item is read-only.");
             }
 
-            if (_current.Remove(item))
+            if (!_original.Contains(item))
             {
-                _pivotWorkItem.Changes.Add(new JsonPatchOperation()
-                {
-                    Operation = Operation.Remove,
-                    Path = "/relations/-",
-                    Value = _original.IndexOf(item)
-                });
-                _pivotWorkItem.IsDirty = true;
+                _changes.Remove(item);
                 return true;
             }
 
-            return false;
+            _changes[item] = Operation.Remove;
+            return _current.Remove(item);
+        }
+
+        internal IEnumerable<(WorkItemRelationWrapper relation, int relationIndex, Operation operation)> GetChanges()
+        {
+            var added   = _current.Except(_original)
+                                  .Select(item => (relation: item, relationIndex: int.MaxValue, operation: Operation.Add));
+            var removed = _original.Except(_current)
+                                   .Select(item => (relation: item, relationIndex: _original.IndexOf(item), operation: Operation.Remove));
+
+            return removed.Concat(added);
         }
 
         public IEnumerator<WorkItemRelationWrapper> GetEnumerator()
@@ -161,6 +156,8 @@ namespace aggregator.Engine
 
         public int Count => _current.Count;
 
-        public bool IsReadOnly => _pivotWorkItem.IsReadOnly;
+        public bool IsReadOnly { get; }
+
+        public bool IsDirty => !_current.SetEquals(_original);
     }
 }

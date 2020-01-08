@@ -15,6 +15,11 @@ namespace aggregator.Engine
         /// <returns></returns>
         public static string ToSeparatedString<T>(this IEnumerable<T> listOfT, char separator=',')
         {
+            if (!listOfT.Any())
+            {
+                return string.Empty;
+            }
+
             return listOfT
                 .Aggregate("",
                     (s, i) => FormattableString.Invariant($"{s}{separator}{i}"))

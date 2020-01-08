@@ -6,7 +6,7 @@ using System.Text;
 
 namespace aggregator.Engine
 {
-    public class WorkItemRelationWrapper
+    public class WorkItemRelationWrapper : IEquatable<WorkItemRelationWrapper>
     {
         private readonly WorkItemRelation _relation;
 
@@ -45,5 +45,35 @@ namespace aggregator.Engine
         public WorkItemId LinkedId { get; }
 
         public IDictionary<string, object> Attributes => _relation.Attributes;
+
+        public bool Equals(WorkItemRelationWrapper other)
+        {
+            if (ReferenceEquals(null, other)) return false;
+            if (ReferenceEquals(this, other)) return true;
+            return _relation.Rel.Equals(other._relation.Rel) && _relation.Url.Equals(other._relation.Url);
+        }
+
+        public override bool Equals(object obj)
+        {
+            return ReferenceEquals(this, obj) || obj is WorkItemRelationWrapper other && Equals(other);
+        }
+
+        public override int GetHashCode()
+        {
+            unchecked
+            {
+                return (_relation.Rel.GetHashCode() * 397) ^ _relation.Url.GetHashCode();
+            }
+        }
+
+        public static bool operator ==(WorkItemRelationWrapper left, WorkItemRelationWrapper right)
+        {
+            return Equals(left, right);
+        }
+
+        public static bool operator !=(WorkItemRelationWrapper left, WorkItemRelationWrapper right)
+        {
+            return !Equals(left, right);
+        }
     }
 }

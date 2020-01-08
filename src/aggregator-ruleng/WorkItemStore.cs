@@ -57,6 +57,11 @@ namespace aggregator.Engine
             return GetWorkItem(item.LinkedId);
         }
 
+        public IList<WorkItemWrapper> GetWorkItems(IEnumerable<WorkItemId> ids)
+        {
+            return GetWorkItems(ids.Select(id => id.Value));
+        }
+
         public IList<WorkItemWrapper> GetWorkItems(IEnumerable<int> ids)
         {
             _context.Logger.WriteVerbose($"Getting workitems {ids.ToSeparatedString()}");
@@ -112,17 +117,10 @@ namespace aggregator.Engine
 
         private static bool ChangeRecycleStatus(WorkItemWrapper workItem, RecycleStatus toRecycleStatus)
         {
-            if ((toRecycleStatus == RecycleStatus.ToDelete && workItem.IsDeleted) ||
-                (toRecycleStatus == RecycleStatus.ToRestore && !workItem.IsDeleted))
-            {
-                return false;
-            }
-
             var previousStatus = workItem.RecycleStatus;
             workItem.RecycleStatus = toRecycleStatus;
 
             var updated = previousStatus != workItem.RecycleStatus;
-            workItem.IsDirty = updated || workItem.IsDirty;
             return updated;
         }
 
@@ -187,7 +185,7 @@ namespace aggregator.Engine
                 {
                     _context.Logger.WriteInfo($"Creating a {item.WorkItemType} workitem in {item.TeamProject}");
                     _ = await _clients.WitClient.CreateWorkItemAsync(
-                        item.Changes,
+                        item.GetChangesAsPatchDocument(),
                         _context.ProjectName,
                         item.WorkItemType,
                         bypassRules: impersonate,
@@ -215,13 +213,13 @@ namespace aggregator.Engine
             }
             updated += workItems.Restored.Length + workItems.Deleted.Length;
 
-            foreach (var item in workItems.Updated.Concat(workItems.Restored))
+            foreach (var item in workItems.Updated.Concat(workItems.Restored).WhereUpdateNeeded())
             {
                 if (commit)
                 {
                     _context.Logger.WriteInfo($"Updating workitem {item.Id}");
                     _ = await _clients.WitClient.UpdateWorkItemAsync(
-                        item.Changes,
+                        item.GetChangesAsPatchDocument(),
                         item.Id,
                         bypassRules: impersonate,
                         cancellationToken: cancellationToken
@@ -255,18 +253,18 @@ namespace aggregator.Engine
 
                 var request = _clients.WitClient.CreateWorkItemBatchRequest(_context.ProjectName,
                                                                             item.WorkItemType,
-                                                                            item.Changes,
+                                                                            item.GetChangesAsPatchDocument(),
                                                                             bypassRules: impersonate,
                                                                             suppressNotifications: false);
                 batchRequests.Add(request);
             }
 
-            foreach (var item in workItems.Updated)
+            foreach (var item in workItems.Updated.WhereUpdateNeeded())
             {
                 _context.Logger.WriteInfo($"Found a request to update workitem {item.Id} in {item.TeamProject}");
 
                 var request = _clients.WitClient.CreateWorkItemBatchRequest(item.Id,
-                                                                            item.Changes,
+                                                                            item.GetChangesAsPatchDocument(),
                                                                             bypassRules: impersonate,
                                                                             suppressNotifications: false);
                 batchRequests.Add(request);
@@ -307,23 +305,15 @@ namespace aggregator.Engine
             int created = workItems.Created.Length;
             int updated = workItems.Updated.Length + workItems.Deleted.Length + workItems.Restored.Length;
 
-            //TODO strange handling, better would be a redesign here: Add links as new Objects and do not create changes when they occur but when accessed to Changes property
             var batchRequests = new List<WitBatchRequest>();
+
             foreach (var item in workItems.Created)
             {
                 _context.Logger.WriteInfo($"Found a request for a new {item.WorkItemType} workitem in {item.TeamProject}");
 
-                //TODO HACK better something like this: _context.Tracker.NewWorkItems.Where(wi => !wi.Relations.HasAdds(toNewItems: true))
-                var changesWithoutRelation = item.Changes
-                                                 .Where(c => c.Operation != Microsoft.VisualStudio.Services.WebApi.Patch.Operation.Test)
-                                                 // remove relations as we might incour in API failure
-                                                 .Where(c => !string.Equals(c.Path, "/relations/-", StringComparison.Ordinal));
-                var document = new JsonPatchDocument();
-                document.AddRange(changesWithoutRelation);
-
                 var request = _clients.WitClient.CreateWorkItemBatchRequest(_context.ProjectName,
                                                                             item.WorkItemType,
-                                                                            document,
+                                                                            item.GetChangesAsPatchDocument(withoutRelationChanges: true, ensureRevision: false),
                                                                             bypassRules: impersonate,
                                                                             suppressNotifications: false);
                 batchRequests.Add(request);
@@ -333,7 +323,7 @@ namespace aggregator.Engine
             {
                 var batchResponses = await ExecuteBatchRequest(batchRequests, cancellationToken);
 
-                UpdateIdsInRelations(batchResponses);
+                UpdateTemporaryIds(workItems.Created, batchResponses.Select(response => response.ParseBody<WorkItem>()));
 
                 await RestoreAndDelete(workItems.Restored, workItems.Deleted, cancellationToken);
             }
@@ -343,19 +333,16 @@ namespace aggregator.Engine
             }
 
             batchRequests.Clear();
-            var allWorkItems = workItems.Created.Concat(workItems.Updated).Concat(workItems.Restored);
+            var allWorkItems = workItems.Created
+                                                             .Concat(workItems.Updated)
+                                                             .Concat(workItems.Restored)
+                                                             .WhereUpdateNeeded();
             foreach (var item in allWorkItems)
             {
-                var changes = item.Changes
-                                  .Where(c => c.Operation != Microsoft.VisualStudio.Services.WebApi.Patch.Operation.Test);
-                if (!changes.Any())
-                {
-                    continue;
-                }
                 _context.Logger.WriteInfo($"Found a request to update workitem {item.Id} in {_context.ProjectName}");
 
                 var request = _clients.WitClient.CreateWorkItemBatchRequest(item.Id,
-                                                                            item.Changes,
+                                                                            item.GetChangesAsPatchDocument(ensureRevision: false),
                                                                             bypassRules: impersonate,
                                                                             suppressNotifications: false);
                 batchRequests.Add(request);
@@ -412,25 +399,11 @@ namespace aggregator.Engine
             }
         }
 
-        private void UpdateIdsInRelations(IEnumerable<WitBatchResponse> batchResponses)
+        private static void UpdateTemporaryIds(IEnumerable<WorkItemWrapper> toBeCreated, IEnumerable<WorkItem> witCreationResponses)
         {
-            var workItems = _context.Tracker.GetChangedWorkItems();
-            var realIds = workItems.Created
-                                   // the response order matches the request order
-                                   .Zip(batchResponses, (item, response) =>
-                                   {
-                                       int oldId = item.Id;
-                                       var newId = response.ParseBody<WorkItem>().Id.Value;
-
-                                       //TODO oldId should be known by item, and not needed to be passed as parameter
-                                       item.ReplaceIdAndResetChanges(oldId, newId);
-                                       return new {oldId, newId};
-                                   })
-                                   .ToDictionary(kvp => kvp.oldId, kvp => kvp.newId);
-
-            foreach (var item in workItems.Updated)
+            foreach (var (item, newId) in toBeCreated.Zip(witCreationResponses, (item, response) => (item, newId: response.Id.Value)))
             {
-                item.RemapIdReferences(realIds);
+                item.SetPermanentId(newId, clearFieldChanges: true);
             }
         }
 
