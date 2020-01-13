@@ -22,7 +22,7 @@ namespace aggregator.Engine.Language
 
         public static async Task<(IPreprocessedRule preprocessedRule, bool result)> ReadFile(string ruleFilePath, IAggregatorLogger logger, CancellationToken cancellationToken = default)
         {
-            var content = await ReadAllLinesAsync(ruleFilePath, cancellationToken);
+            var content = await File.ReadAllLinesAsync(ruleFilePath, cancellationToken);
             return Read(content, logger);
         }
 
@@ -140,7 +140,7 @@ namespace aggregator.Engine.Language
         {
             var content = Write(preprocessedRule);
 
-            await WriteAllLinesAsync(ruleFilePath, content, cancellationToken);
+            await File.WriteAllLinesAsync(ruleFilePath, content, cancellationToken);
         }
 
         public static string[] Write(IPreprocessedRule preprocessedRule)
@@ -161,40 +161,6 @@ namespace aggregator.Engine.Language
             content.AddRange(preprocessedRule.RuleCode.Skip(preprocessedRule.FirstCodeLine));
 
             return content.ToArray();
-        }
-
-        private static async Task<string[]> ReadAllLinesAsync(string ruleFilePath, CancellationToken cancellationToken)
-        {
-            using (var fileStream = File.OpenRead(ruleFilePath))
-            {
-                using (var streamReader = new StreamReader(fileStream))
-                {
-                    var lines = new List<string>();
-                    string line;
-                    while ((line = await streamReader.ReadLineAsync().ConfigureAwait(false)) != null)
-                    {
-                        cancellationToken.ThrowIfCancellationRequested();
-                        lines.Add(line);
-                    }
-
-                    return lines.ToArray();
-                }
-            }
-        }
-
-        private static async Task WriteAllLinesAsync(string ruleFilePath, IEnumerable<string> ruleContent, CancellationToken cancellationToken)
-        {
-            using (var fileStream = File.OpenWrite(ruleFilePath))
-            {
-                using (var streamWriter = new StreamWriter(fileStream))
-                {
-                    foreach (var line in ruleContent)
-                    {
-                        cancellationToken.ThrowIfCancellationRequested();
-                        await streamWriter.WriteLineAsync(line).ConfigureAwait(false);
-                    }
-                }
-            }
         }
     }
 }
