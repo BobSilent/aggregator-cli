@@ -19,6 +19,7 @@ namespace aggregator
     /// <summary>
     /// Azure Function wrapper for Aggregator v3
     /// </summary>
+    [System.Runtime.InteropServices.Guid("6A35EE61-BAB7-47D2-9F2C-890F7B499DCC")]
     public class AzureFunctionHandler
     {
         private readonly ILogger _log;
@@ -73,15 +74,9 @@ namespace aggregator
                     var rule = await ruleProvider.GetRule(ruleName);
                     var execResult = await ruleExecutor.ExecuteAsync(rule, eventContext, cancellationToken);
 
-                    if (string.IsNullOrEmpty(execResult))
-                    {
-                        return req.CreateResponse(HttpStatusCode.OK);
-                    }
-                    else
-                    {
-                        _log.LogInformation($"Returning '{execResult}' from '{rule.Name}'");
-                        return req.CreateResponse(HttpStatusCode.OK, execResult);
-                    }
+                    _log.LogInformation($"Returning '{execResult}' from '{rule.Name}'");
+
+                    return string.IsNullOrEmpty(execResult) ? req.CreateResponse(HttpStatusCode.OK) : req.CreateResponse(HttpStatusCode.OK, execResult);
                 }
                 catch (Exception ex)
                 {

@@ -122,8 +122,8 @@ namespace aggregator.Engine
                     var store = new WorkItemStore(_context);
                     return store.GetWorkItems(ChildrenLinks);
                 }
-                else
-                    return new WorkItemWrapper[0];
+
+                return Array.Empty<WorkItemWrapper>();
             }
         }
 
