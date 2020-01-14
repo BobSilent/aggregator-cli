@@ -120,9 +120,9 @@ return string.Empty;
 ";
 
             var rule = new ScriptedRuleWrapper("Test", ruleCode.Mince());
-            var result = rule.Verify();
+            (bool success, _) = rule.Verify();
 
-            Assert.False(result.success);
+            Assert.False(success);
         }
 
         [Fact]
@@ -236,7 +236,7 @@ parent.Relations.AddChild(newChild);
 
             var rule = new ScriptedRuleWrapper("Test", ruleCode.Mince());
             string result = await engine.RunAsync(rule, clientsContext.ProjectId, workItem, clientsContext, CancellationToken.None);
-			
+
             Assert.Null(result);
             logger.Received().WriteInfo($"Found a request for a new Task workitem in {clientsContext.ProjectName}");
             logger.Received().WriteInfo($"Found a request to update workitem {workItemId} in {clientsContext.ProjectName}");
@@ -359,7 +359,7 @@ return string.Empty
 ";
             string[] mincedCode = ruleCode.Mince();
             var rule = new ScriptedRuleWrapper("Test", mincedCode);
-            
+
             var (success, diagnostics) = rule.Verify();
 
             Assert.False(success);

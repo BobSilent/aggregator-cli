@@ -213,7 +213,7 @@ namespace aggregator.cli
             return uploadedRuntimeVer;
         }
 
-        private async Task<SemVersion> GetLocalPackageVersionAsync(string runtimePackageFile)
+        private static async Task<SemVersion> GetLocalPackageVersionAsync(string runtimePackageFile)
         {
             if (!File.Exists(runtimePackageFile))
             {
@@ -242,13 +242,13 @@ namespace aggregator.cli
             var release = releases[0];
             if (string.Compare(tag, "latest", true) != 0)
             {
-                release = releases.Where(r => string.Compare(tag, r.TagName, true) == 0).FirstOrDefault();
+                release = releases.FirstOrDefault(r => string.Compare(tag, r.TagName, true) == 0);
             }
             if (release == null)
             {
                 return default;
             }
-            var asset = release.Assets.Where(a => a.Name == RuntimePackageFile).FirstOrDefault();
+            var asset = release.Assets.FirstOrDefault(a => a.Name == RuntimePackageFile);
             return (name: release.Name, when: release.PublishedAt, url: asset.BrowserDownloadUrl);
         }
 

@@ -90,12 +90,12 @@ namespace unittests_ruleng
 
             var wi = sut.NewWorkItem("Task");
             wi.Title = "Brand new";
-            var save = await sut.SaveChanges(SaveMode.Default, false, false, CancellationToken.None);
+            (int created, int updated) = await sut.SaveChanges(SaveMode.Default, false, false, CancellationToken.None);
 
             Assert.NotNull(wi);
             Assert.True(wi.IsNew);
-            Assert.Equal(1, save.created);
-            Assert.Equal(0, save.updated);
+            Assert.Equal(1, created);
+            Assert.Equal(0, updated);
             Assert.Equal(-1, wi.Id.Value);
         }
 
@@ -155,11 +155,11 @@ namespace unittests_ruleng
             Assert.True(wrapper.IsDirty);
             Assert.Equal(RecycleStatus.ToDelete, wrapper.RecycleStatus);
 
-            var changedWorkItems = context.Tracker.GetChangedWorkItems();
-            Assert.Single(changedWorkItems.Deleted);
-            Assert.Empty(changedWorkItems.Created);
-            Assert.Empty(changedWorkItems.Updated);
-            Assert.Empty(changedWorkItems.Restored);
+            (WorkItemWrapper[] created, WorkItemWrapper[] updated, WorkItemWrapper[] deleted, WorkItemWrapper[] restored) = context.Tracker.GetChangedWorkItems();
+            Assert.Single(deleted);
+            Assert.Empty(created);
+            Assert.Empty(updated);
+            Assert.Empty(restored);
         }
 
         [Fact]
@@ -179,11 +179,11 @@ namespace unittests_ruleng
             Assert.False(wrapper.IsDirty);
             Assert.Equal(RecycleStatus.NoChange, wrapper.RecycleStatus);
 
-            var changedWorkItems = context.Tracker.GetChangedWorkItems();
-            Assert.Empty(changedWorkItems.Deleted);
-            Assert.Empty(changedWorkItems.Created);
-            Assert.Empty(changedWorkItems.Updated);
-            Assert.Empty(changedWorkItems.Restored);
+            (WorkItemWrapper[] created, WorkItemWrapper[] updated, WorkItemWrapper[] deleted, WorkItemWrapper[] restored) = context.Tracker.GetChangedWorkItems();
+            Assert.Empty(deleted);
+            Assert.Empty(created);
+            Assert.Empty(updated);
+            Assert.Empty(restored);
         }
 
         [Fact]
@@ -203,11 +203,11 @@ namespace unittests_ruleng
             Assert.False(wrapper.IsDirty);
             Assert.Equal(RecycleStatus.NoChange, wrapper.RecycleStatus);
 
-            var changedWorkItems = context.Tracker.GetChangedWorkItems();
-            Assert.Empty(changedWorkItems.Deleted);
-            Assert.Empty(changedWorkItems.Created);
-            Assert.Empty(changedWorkItems.Updated);
-            Assert.Empty(changedWorkItems.Restored);
+            (WorkItemWrapper[] created, WorkItemWrapper[] updated, WorkItemWrapper[] deleted, WorkItemWrapper[] restored) = context.Tracker.GetChangedWorkItems();
+            Assert.Empty(deleted);
+            Assert.Empty(created);
+            Assert.Empty(updated);
+            Assert.Empty(restored);
         }
     }
 }
