@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.Loader;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -296,6 +297,89 @@ namespace aggregator.cli
             await kudu.StreamLogsAsync(Console.Out, cancellationToken);
 
             return true;
+        }
+
+        internal async Task<bool> UpdateAsync(InstanceName instance, string requiredVersion, string sourceUrl, CancellationToken cancellationToken)
+        {
+            // check runtime package
+            var package = new FunctionRuntimePackage(_logger);
+            //bool ok = await package.UpdateVersionAsync(requiredVersion, sourceUrl, instance, _azure, cancellationToken);
+            //if (ok)
+            {
+
+                // update runtime? currently within Update Rule
+                // update run.csx, function.json
+
+                //ok = await AddAsync(instance, name, filePath, cancellationToken);
+            }
+
+            //internal async Task<bool> ChangeAppSettingsAsync(InstanceName instance, DevOpsLogon devopsLogonData, SaveMode saveMode, CancellationToken cancellationToken)
+            {
+                // Change V2 to V3 FUNCTIONS_EXTENSION_VERSION ~3
+                var webFunctionApp = await GetWebApp(instance, cancellationToken);
+                var currentAzureRuntimeVersion = webFunctionApp.GetAppSettings()
+                                                               .GetValueOrDefault("FUNCTIONS_EXTENSION_VERSION");
+                webFunctionApp.Update()
+                              .WithAppSetting("FUNCTIONS_EXTENSION_VERSION", "~3")
+                              .Apply(); ;
+                //return true;
+            }
+
+            {
+                //AppDomain domain = AppDomain.CreateDomain("Test");
+                //domain.AssemblyLoad += DomainOnAssemblyLoad;
+
+                using (var archive = System.IO.Compression.ZipFile.OpenRead(package.RuntimePackageFile))
+                {
+                    var entry = archive.Entries.Single(e => string.Equals("aggregator-function.dll", e.Name));
+
+                    var context = new AssemblyLoadContext("Test", true);
+                    using (Stream assemblyStream = entry.Open())
+                    using (MemoryStream ms = new MemoryStream())
+                    {
+                        assemblyStream.CopyTo(ms);
+                        ms.Position = 0;
+                        var assembly = context.LoadFromStream(ms);
+
+                        //ToDO: From AggregatorRules PackagingFilesAsync
+                        using (var stream = assembly.GetManifestResourceStream("aggregator.FunctionTemplate.function.json"))
+                        {
+                            using (var reader = new StreamReader(stream))
+                            {
+                                var content = await reader.ReadToEndAsync();
+                                //inMemoryFiles.Add("function.json", content);
+                            }
+                        }
+
+                        using (var stream = assembly.GetManifestResourceStream("aggregator.FunctionTemplate.run.csx"))
+                        {
+                            using (var reader = new StreamReader(stream))
+                            {
+                                var content = await reader.ReadToEndAsync();
+                                //inMemoryFiles.Add("run.csx", content);
+                            }
+                        }
+                    }
+                    context.Unload();
+
+                }
+
+                //var rules = new AggregatorRules(_azure, _logger);
+                //var allRules = await rules.ListAsync(instance, cancellationToken);
+
+                //foreach (string s in allRules.Select(r => r.RuleName))
+                //{
+
+                //}
+            }
+
+            return false;
+        }
+
+
+        private void DomainOnAssemblyLoad(object sender, AssemblyLoadEventArgs args)
+        {
+            //throw new NotImplementedException();
         }
     }
 }

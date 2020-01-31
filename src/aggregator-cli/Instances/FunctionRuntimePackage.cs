@@ -28,7 +28,7 @@ namespace aggregator.cli
                 .Version;
         }
 
-        private string RuntimePackageFile => "FunctionRuntime.zip";
+        public string RuntimePackageFile => "FunctionRuntime.zip";
 
         internal async Task<bool> UpdateVersionAsync(string requiredVersion, string sourceUrl, InstanceName instance, IAzure azure, CancellationToken cancellationToken)
         {
